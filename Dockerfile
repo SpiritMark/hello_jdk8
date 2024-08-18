@@ -13,4 +13,4 @@ RUN mvn package -DskipTests
 
 # 启动服务
 #   -- 指定 application-prod.yml 启动
-CMD ["java","-jar","/app/target/SprintBoot-Template-0.0.1-SNAPSHOT.jar","--spring.profiles.active=prod"]
+CMD ["java","-jar","/app/target/helloworld_jdk8.jar","--spring.profiles.active=prod"]
