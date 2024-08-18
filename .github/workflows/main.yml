@@ -11,7 +11,6 @@ on:
       - "master"
 # 工作流具体执行的任务
 jobs:
-
   build:
     # 运行在虚拟机上，指定虚拟机及其版本
     runs-on: ubuntu-latest
