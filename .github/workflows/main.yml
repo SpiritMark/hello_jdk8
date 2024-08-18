@@ -1,0 +1,136 @@
+name: SpringBoot项目部署
+
+on:
+  # 当向分支进行git push时触发该工作流
+  push:
+    branches:
+      - "master"
+  # 当向master分支合并分支时触发该工作流
+  pull_request:
+    branches:
+      - "master"
+
+# 工作流具体执行的任务
+jobs:
+
+  build:
+    # 运行在虚拟机上，指定虚拟机及其版本
+    runs-on: ubuntu-latest
+    env:
+      # 端口号
+      Port: 8081
+      # 云服务地址
+      Host_IP: ${{secrets.REMOTE_SERVER01_IP}}
+      # 路径
+      Host_Dir: "/cicd"
+      # 账号
+      Host_Role: root
+      # 云服务密码
+      Host_PWD: ${{secrets.REMOTE_SERVER01_PWD}}
+      # 版本
+      VERSION : 0.1
+
+    steps:
+      # 定义环境变量
+      - name: Define environment variables
+        run: |
+          # 定义全局变量
+          PROJECT_NAME=$(basename $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')
+          FILE_NAME=${PROJECT_NAME}-backend
+          # 写入环境中
+          echo "PROJECT_NAME=$PROJECT_NAME" >> "$GITHUB_ENV"
+          echo "FILE_NAME=$FILE_NAME" >> "$GITHUB_ENV"
+
+
+      # 测试环境变量
+      - name: Use variable from environment
+        run: |
+          echo "================= env ============"
+          echo "端口号:$Port"
+          echo "仓库全名称：$GITHUB_REPOSITORY"
+          echo ${GITHUB_REF##*/}
+          echo "服务器地址: $Host_IP"
+          echo "服务器密码: $Host_PWD"
+          echo "服务器目录: $Host_Dir"
+          echo "项目版本号: $VERSION"
+          echo "================= GITHUB_ENV ============"
+          echo "项目名称 (从环境变量): $PROJECT_NAME"
+          echo "文件名称 (从环境变量): $FILE_NAME"
+
+
+      # 拉取最新代码
+      - name: Pull latest code
+        uses: actions/checkout@v3       # 使用官方的checkout action，用于将仓库中的最新代码检查并拉取到工作目录中
+
+      # 设置JDK版本
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v3     # 安装java环境的action
+        with:
+          java-version: '8.0'           # 指定jkd版本
+          distribution: 'temurin'
+          cache: maven                  # 使用maven缓存，避免每次构建项目时都要重新下载maven依赖
+
+      # 构建镜像
+      - name: Build docker image
+        run: |
+          docker build -t ${FILE_NAME}:${VERSION} .    # 构建docker镜像，命令最后的点代表Dockerfile所在目录
+          docker save -o  ${FILE_NAME}.tar  ${FILE_NAME}:${VERSION} # 保存压缩后的docker镜像，这一步是为了方便后面我们将该镜像上传至指定的服务器
+
+
+      # 查看镜像文件大小
+      - name: Print file size
+        run: |
+          FILE_PATH="./${FILE_NAME}.tar"
+          FILE_SIZE_MB=$(echo "scale=2; $(stat -c%s "$FILE_PATH") / (1024 * 1024)" | bc) # 生成文件大小
+          echo "Generated file size: $FILE_SIZE_MB MB"
+
+
+
+      # 删除旧的docker镜像
+      - name: Delete old docker image
+        uses: matheusvanzan/sshpass-action@v2
+        with:
+          host: ${{env.Host_IP}}
+          user: ${{env.Host_Role}}
+          pass: ${{env.Host_PWD}}
+          run:
+            # 停止运行中的docker容器、删除该容器、删除镜像
+            docker stop ${{env.FILE_NAME}} || true && docker rm ${{env.FILE_NAME}} || true && docker rmi ${{env.FILE_NAME}}:${{env.VERSION}} || true
+
+      # 删除旧的docker镜像压缩包
+      - name: Delete old docker tar
+        uses: matheusvanzan/sshpass-action@v2
+        with:
+          host: ${{env.Host_IP}}
+          user: ${{env.Host_Role}}
+          pass: ${{env.Host_PWD}}
+          run: |
+            echo "Attempting to delete ${{env.Host_Dir}}/${{env.FILE_NAME}}.tar"
+            rm -rf ${{env.Host_Dir}}/${{env.FILE_NAME}}.tar
+
+      # 上传新的docker镜像
+      - name: upload new docker image and start-up script
+        run:
+          sshpass -p ${Host_PWD} scp -r -o StrictHostKeyChecking=no ./${FILE_NAME}.tar ${Host_Role}@${Host_IP}:${Host_Dir}
+
+
+
+      # 加载tar文件，加载docker镜像
+      - name: Load new docker image
+        uses: matheusvanzan/sshpass-action@v2
+        with:
+          host: ${{env.Host_IP}}
+          user: ${{env.Host_Role}}
+          pass: ${{env.Host_PWD}}
+          run:
+            docker load -i ${{env.Host_Dir}}/${{env.FILE_NAME}}.tar
+
+      # docker run 运行，启动容器
+      - name: Run project
+        uses: matheusvanzan/sshpass-action@v2
+        with:
+          host: ${{env.Host_IP}}
+          user: ${{env.Host_Role}}
+          pass: ${{env.Host_PWD}}
+          run:
+            docker run -d -p ${{env.Port}}:8080 --name ${{env.FILE_NAME}} ${{env.FILE_NAME}}:${{env.VERSION}}
