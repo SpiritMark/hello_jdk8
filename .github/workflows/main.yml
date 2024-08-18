@@ -9,7 +9,6 @@ on:
   pull_request:
     branches:
       - "master"
-
 # 工作流具体执行的任务
 jobs:
 
@@ -56,7 +55,6 @@ jobs:
           echo "================= GITHUB_ENV ============"
           echo "项目名称 (从环境变量): $PROJECT_NAME"
           echo "文件名称 (从环境变量): $FILE_NAME"
-
 
       # 拉取最新代码
       - name: Pull latest code
